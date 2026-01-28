@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mortgage Offset Simulation (Static)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #121212;
+      color: #e0e0e0;
+      text-align: left;
+    }
+    .container {
+      max-width: 100%;
+      margin: 2%;
+      text-align: left;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      margin-bottom: 20px;
+      gap: 20px;
+    }
+    .column1 {
+      padding: 10px;
+      min-width: 280px;
+      max-width: 360px;
+      flex: 0 0 auto;
+      border: 1px solid #222;
+      border-radius: 10px;
+      background: #161616;
+    }
+    .column2 {
+      flex: 1 1 600px;
+      padding: 10px;
+    }
+    table {
+      border-collapse: collapse;
+      margin-bottom: 30px;
+      width: 100%;
+      overflow: hidden;
+      border-radius: 10px;
+    }
+    th, td {
+      border: 1px solid #444;
+      padding: 8px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    th {
+      background-color: #333;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin: 6px 0 10px 0;
+      background-color: #222;
+      color: #e0e0e0;
+      border: 1px solid #555;
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 10px 14px;
+      background-color: #555;
+      color: #e0e0e0;
+      border: none;
+      cursor: pointer;
+      border-radius: 8px;
+      width: 100%;
+      font-weight: 600;
+    }
+    button:hover { background-color: #666; }
+    label { display: block; margin-top: 10px; font-size: 13px; color: #cfcfcf; }
+    .hint { font-size: 12px; color: #a9a9a9; margin-top: -6px; margin-bottom: 10px; }
+    .metric {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 10px 0 0 0;
+      font-size: 13px;
+    }
+    .chip {
+      background: #1f1f1f;
+      border: 1px solid #2d2d2d;
+      border-radius: 999px;
+      padding: 8px 10px;
+    }
+    .section-title { margin-top: 26px; }
+    .scroll-wrap {
+      width: 100%;
+      overflow: auto;
+      border: 1px solid #222;
+      border-radius: 10px;
+      background: #141414;
+    }
+    .error {
+      color: #ff9c9c;
+      background: #2a1414;
+      border: 1px solid #6b2c2c;
+      padding: 10px;
+      border-radius: 8px;
+      margin-top: 10px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Mortgage Offset Simulation</h1>
+
+    <div class="row">
+      <div class="column1">
+        <form id="simForm">
+          <label>Principal (RM):</label>
+          <input type="number" id="principal" step="any" value="590000" />
+
+          <label>Annual Interest Rate (%):</label>
+          <input type="number" id="annualRate" step="any" value="3.95" />
+
+          <label>Original Term (years):</label>
+          <input type="number" id="originalYears" step="1" value="35" />
+          <div class="hint">Used to compute the baseline monthly payment.</div>
+
+          <label>Simulation Term (years):</label>
+          <input type="number" id="simulationYears" step="1" value="15" />
+
+          <label>Offset Threshold (RM):</label>
+          <input type="number" id="offsetThreshold" step="any" value="25000" />
+
+          <button type="submit">Simulate</button>
+
+          <div class="error" id="errBox"></div>
+
+          <div class="metric">
+            <div class="chip" id="baselineChip">Baseline Monthly: -</div>
+            <div class="chip" id="acceleratedChip">Accelerated (Fixed) Monthly: -</div>
+          </div>
+        </form>
+      </div>
+
+      <div class="column2">
+        <h2 id="summaryTitle">Accelerated Term Analysis Summary (Baseline)</h2>
+        <div class="scroll-wrap" id="baselineSummaryWrap"></div>
+      </div>
+    </div>
+
+    <h2 class="section-title" id="detailTitle">Detailed Amortization for Simulation Term</h2>
+    <div class="hint" id="detailHint"></div>
+    <div class="scroll-wrap" id="detailWrap"></div>
+
+    <h2 class="section-title">Combined Offset Simulation Table</h2>
+    <div class="scroll-wrap" id="combinedWrap"></div>
+  </div>
+
+<script>
+  // -----------------------
+  // Formatting helpers
+  // -----------------------
+  function formatRM(x) {
+    if (!Number.isFinite(x)) return "RM0.00";
+    const sign = x < 0 ? "-" : "";
+    const abs = Math.abs(x);
+    return sign + "RM" + abs.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function clampNonNeg(x) { return x < 0 ? 0 : x; }
+
+  // -----------------------
+  // Mortgage math (JS version of your Python)
+  // -----------------------
+  function calcBaselinePayment(principal, monthlyRate, nMonths) {
+    if (nMonths <= 0) return 0;
+    if (monthlyRate === 0) return principal / nMonths;
+    const p = principal;
+    const r = monthlyRate;
+    const pow = Math.pow(1 + r, nMonths);
+    return p * r * pow / (pow - 1);
+  }
+
+  function acceleratedTermAnalysis(principal, monthlyRate, originalTermYears) {
+    const nOriginal = originalTermYears * 12;
+    const baselinePayment = calcBaselinePayment(principal, monthlyRate, nOriginal);
+
+    const rows = [];
+    for (let term = 1; term <= originalTermYears; term++) {
+      const nTarget = term * 12;
+
+      const targetPayment = calcBaselinePayment(principal, monthlyRate, nTarget);
+      const extraPayment = targetPayment - baselinePayment;
+
+      const totalPayment = targetPayment * nTarget;
+      const totalInterest = totalPayment - principal;
+
+      // remaining_baseline from your Python:
+      // principal * ((1+r)^n_original - (1+r)^n_target) / ((1+r)^n_original - 1)
+      let remainingBaseline;
+      if (monthlyRate === 0) {
+        // With 0% interest, baseline payment is principal/nOriginal; after nTarget months
+        // remaining = principal * (1 - nTarget/nOriginal)
+        remainingBaseline = principal * (1 - (nTarget / nOriginal));
+      } else {
+        const r = monthlyRate;
+        const powOrig = Math.pow(1 + r, nOriginal);
+        const powTarget = Math.pow(1 + r, nTarget);
+        remainingBaseline = principal * (powOrig - powTarget) / (powOrig - 1);
+      }
+
+      const advancedPrincipal = principal - remainingBaseline;
+
+      rows.push([
+        term,
+        formatRM(targetPayment),
+        formatRM(extraPayment),
+        formatRM(totalInterest),
+        formatRM(advancedPrincipal)
+      ]);
+    }
+
+    return { baselinePayment, rows };
+  }
+
+  function generateAmortizationSchedule(principal, monthlyRate, nMonths, monthlyPayment) {
+    let balance = principal;
+    let cumulativePrincipal = 0;
+    const schedule = [];
+
+    for (let month = 1; month <= nMonths; month++) {
+      const interestPayment = balance * monthlyRate;
+      let principalPayment = monthlyPayment - interestPayment;
+
+      // If payment doesn't even cover interest, don't let principal go negative.
+      if (principalPayment < 0) principalPayment = 0;
+
+      // Prevent overpay in the last month
+      let newBalance = balance - principalPayment;
+      if (newBalance < 0) {
+        principalPayment += newBalance; // newBalance is negative => reduce principalPayment
+        newBalance = 0;
+      }
+
+      cumulativePrincipal += principalPayment;
+      balance = newBalance;
+
+      schedule.push({
+        Month: month,
+        Payment: monthlyPayment,
+        Interest: interestPayment,
+        Principal: principalPayment,
+        CumulativePrincipal: cumulativePrincipal,
+        RemainingBalance: balance
+      });
+
+      if (balance <= 0) break;
+    }
+    return schedule;
+  }
+
+  function detailedAmortization(principal, monthlyRate, selectedTermYears, baselinePayment) {
+    const nSelected = selectedTermYears * 12;
+    const acceleratedPayment = calcBaselinePayment(principal, monthlyRate, nSelected);
+
+    const acceleratedSchedule = generateAmortizationSchedule(principal, monthlyRate, nSelected, acceleratedPayment);
+    const baselineSchedule = generateAmortizationSchedule(principal, monthlyRate, nSelected, baselinePayment);
+
+    const tableRows = [];
+    let cumulativeExtra = 0;
+
+    const len = Math.min(acceleratedSchedule.length, baselineSchedule.length);
+    for (let i = 0; i < len; i++) {
+      const acc = acceleratedSchedule[i];
+      const base = baselineSchedule[i];
+
+      const extraPrincipal = clampNonNeg(acc.Principal - base.Principal);
+      cumulativeExtra += extraPrincipal;
+
+      tableRows.push([
+        acc.Month,
+        formatRM(acc.Payment),
+        formatRM(acc.Interest),
+        formatRM(acc.Principal),
+        formatRM(acc.CumulativePrincipal),
+        formatRM(acc.RemainingBalance),
+        formatRM(extraPrincipal),
+        formatRM(cumulativeExtra)
+      ]);
+    }
+
+    return { acceleratedPayment, tableRows };
+  }
+
+  function simulateCombinedOffsetAdvance(principal, monthlyRate, fixedPayment, baselinePayment, offsetThreshold, targetTermYears) {
+    const totalMonths = targetTermYears * 12;
+
+    let basePrincipalPaid = 0.0;
+    let offsetTotal = 0.0;
+    let extraAccumulated = 0.0;
+
+    const schedule = [];
+
+    for (let m = 1; m <= totalMonths; m++) {
+      const effectiveOutstanding = principal - (basePrincipalPaid + extraAccumulated + offsetTotal);
+      const interestPayment = effectiveOutstanding * monthlyRate;
+      let acceleratedPrincipal = fixedPayment - interestPayment;
+      if (acceleratedPrincipal < 0) acceleratedPrincipal = 0;
+
+      // Baseline principal for this month
+      const baselineBalance = principal - basePrincipalPaid;
+      const baselineInterest = baselineBalance * monthlyRate;
+      let baselinePrincipal = baselinePayment - baselineInterest;
+      if (baselinePrincipal < 0) baselinePrincipal = 0;
+
+      // Avoid baseline paying more principal than remaining baseline balance
+      if (baselinePrincipal > baselineBalance) baselinePrincipal = baselineBalance;
+
+      let extra = acceleratedPrincipal - baselinePrincipal;
+      if (extra < 0) extra = 0;
+
+      extraAccumulated += extra;
+      basePrincipalPaid += baselinePrincipal;
+
+      let offsetApplied = 0;
+      if (extraAccumulated >= offsetThreshold) {
+        offsetApplied = offsetThreshold;
+        offsetTotal += offsetThreshold;
+        extraAccumulated = 0; // reset extra
+      }
+
+      const totalEffectiveReduction = basePrincipalPaid + extraAccumulated + offsetTotal;
+      const remainingPrincipal = principal - totalEffectiveReduction;
+
+      schedule.push({
+        Month: m,
+        FixedPayment: fixedPayment,
+        EffectiveOutstanding: effectiveOutstanding,
+        Interest: interestPayment,
+        AcceleratedPrincipal: acceleratedPrincipal,
+        BaselinePrincipal: baselinePrincipal,
+        ExtraAdded: extra,
+        ExtraAccumulated: extraAccumulated,
+        OffsetApplied: offsetApplied,
+        BaselinePaid: basePrincipalPaid,
+        TotalOffset: offsetTotal,
+        TotalEffectiveReduction: totalEffectiveReduction,
+        RemainingPrincipal: remainingPrincipal
+      });
+
+      if (remainingPrincipal <= 0) break;
+    }
+
+    return schedule;
+  }
+
+  // -----------------------
+  // Table rendering
+  // -----------------------
+  function buildTable(headers, rows) {
+    let html = "<table><thead><tr>";
+    for (const h of headers) html += `<th>${h}</th>`;
+    html += "</tr></thead><tbody>";
+
+    for (const r of rows) {
+      html += "<tr>";
+      for (const cell of r) html += `<td>${cell}</td>`;
+      html += "</tr>";
+    }
+
+    html += "</tbody></table>";
+    return html;
+  }
+
+  // -----------------------
+  // UI + Simulation
+  // -----------------------
+  const form = document.getElementById("simForm");
+  const errBox = document.getElementById("errBox");
+
+  const baselineChip = document.getElementById("baselineChip");
+  const acceleratedChip = document.getElementById("acceleratedChip");
+
+  const summaryTitle = document.getElementById("summaryTitle");
+  const baselineSummaryWrap = document.getElementById("baselineSummaryWrap");
+
+  const detailTitle = document.getElementById("detailTitle");
+  const detailHint = document.getElementById("detailHint");
+  const detailWrap = document.getElementById("detailWrap");
+
+  const combinedWrap = document.getElementById("combinedWrap");
+
+  function readInputs() {
+    const principal = Number(document.getElementById("principal").value);
+    const annualRate = Number(document.getElementById("annualRate").value);
+    const originalYears = Math.trunc(Number(document.getElementById("originalYears").value));
+    const simulationYears = Math.trunc(Number(document.getElementById("simulationYears").value));
+    const offsetThreshold = Number(document.getElementById("offsetThreshold").value);
+    return { principal, annualRate, originalYears, simulationYears, offsetThreshold };
+  }
+
+  function validateInputs(x) {
+    const errors = [];
+
+    if (!Number.isFinite(x.principal) || x.principal <= 0) errors.push("Principal must be > 0.");
+    if (!Number.isFinite(x.annualRate) || x.annualRate < 0) errors.push("Annual interest rate must be >= 0.");
+    if (!Number.isFinite(x.originalYears) || x.originalYears <= 0) errors.push("Original term (years) must be > 0.");
+    if (!Number.isFinite(x.simulationYears) || x.simulationYears <= 0) errors.push("Simulation term (years) must be > 0.");
+    if (x.simulationYears > x.originalYears) errors.push("Simulation term should be <= original term (otherwise baseline comparison is odd).");
+    if (!Number.isFinite(x.offsetThreshold) || x.offsetThreshold <= 0) errors.push("Offset threshold must be > 0.");
+
+    return errors;
+  }
+
+  function setError(msg) {
+    if (msg) {
+      errBox.style.display = "block";
+      errBox.textContent = msg;
+    } else {
+      errBox.style.display = "none";
+      errBox.textContent = "";
+    }
+  }
+
+  function simulateAndRender() {
+    const inp = readInputs();
+    const errs = validateInputs(inp);
+
+    if (errs.length) {
+      setError(errs.join(" "));
+      return;
+    }
+    setError("");
+
+    const monthlyRate = (inp.annualRate / 100) / 12;
+    const nOriginal = inp.originalYears * 12;
+
+    // Baseline payment + summary
+    const { baselinePayment, rows: summaryRows } =
+      acceleratedTermAnalysis(inp.principal, monthlyRate, inp.originalYears);
+
+    baselineChip.textContent = `Baseline Monthly: ${formatRM(baselinePayment)}`;
+
+    summaryTitle.textContent = `${inp.originalYears}-Year Accelerated Term Analysis Summary (Baseline)`;
+    baselineSummaryWrap.innerHTML = buildTable(
+      ["Term (years)", "Required Monthly Payment", "Extra Payment", "Total Interest", "Advanced Principal"],
+      summaryRows
+    );
+
+    // Detailed amortization for simulation term
+    const { acceleratedPayment, tableRows: detailRows } =
+      detailedAmortization(inp.principal, monthlyRate, inp.simulationYears, baselinePayment);
+
+    acceleratedChip.textContent = `Accelerated (Fixed) Monthly: ${formatRM(acceleratedPayment)}`;
+
+    detailTitle.textContent = `Detailed Amortization for Simulation Term (${inp.simulationYears} years)`;
+    detailHint.textContent = `Derived Accelerated (Fixed) Payment: ${formatRM(acceleratedPayment)}`;
+
+    detailWrap.innerHTML = buildTable(
+      ["Month", "Payment", "Interest", "Principal", "Cum. Principal", "Remaining Balance", "Extra Principal", "Cum. Extra Principal"],
+      detailRows
+    );
+
+    // Combined offset simulation table
+    const combined = simulateCombinedOffsetAdvance(
+      inp.principal,
+      monthlyRate,
+      acceleratedPayment,
+      baselinePayment,
+      inp.offsetThreshold,
+      inp.simulationYears
+    );
+
+    const combinedRows = combined.map(e => ([
+      e.Month,
+      formatRM(e.FixedPayment),
+      formatRM(e.EffectiveOutstanding),
+      formatRM(e.Interest),
+      formatRM(e.AcceleratedPrincipal),
+      formatRM(e.BaselinePrincipal),
+      formatRM(e.ExtraAdded),
+      formatRM(e.ExtraAccumulated),
+      formatRM(e.OffsetApplied),
+      formatRM(e.BaselinePaid),
+      formatRM(e.TotalOffset),
+      formatRM(e.TotalEffectiveReduction),
+      formatRM(e.RemainingPrincipal)
+    ]));
+
+    combinedWrap.innerHTML = buildTable(
+      ["Month", "Fixed Payment", "Effective Outstanding", "Interest", "Accelerated Principal",
+       "Baseline Principal", "Extra Added", "Extra Accumulated", "Offset Applied",
+       "Baseline Paid", "Total Offset", "Total Effective Reduction", "Remaining Principal"],
+      combinedRows
+    );
+  }
+
+  // Form submit (button)
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    simulateAndRender();
+  });
+
+  // Auto-update on input changes (debounced)
+  let t = null;
+  form.addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(simulateAndRender, 150);
+  });
+
+  // Initial render
+  simulateAndRender();
+</script>
+</body>
+</html>
