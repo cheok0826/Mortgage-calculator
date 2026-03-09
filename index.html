@@ -161,41 +161,7 @@
             <div class="chip" id="offsetChip">Offset Mode: -</div>
           </div>
         </form>
-      </div>
-
-      <div class="column2">
-        <!-- Top-right options -->
-        <div class="optionsRow">
-          <div class="optionCard">
-            <h3>Offset Options (Top Right)</h3>
-
-            <label>Offset Start Balance (RM):</label>
-            <input type="number" id="offsetStart" step="any" value="25000" />
-            <div class="hint">This is your offset account balance used to reduce interest (not principal).</div>
-
-            <label>Offset Monthly Top-up (RM / month):</label>
-            <input type="number" id="offsetTopup" step="any" value="0" />
-            <div class="hint">If you add to offset monthly (optional). 0 = constant offset.</div>
-
-            <label>Bank Behaviour:</label>
-            <select id="bankBehaviour">
-              <option value="fixed_payment">Payment fixed (tenure can shorten)</option>
-              <option value="keep_tenure">Tenure fixed (payment recalculated)</option>
-            </select>
-
-            <label>What you actually pay each month:</label>
-            <select id="youPayPlan">
-              <option value="baseline">Baseline (35y) payment</option>
-              <option value="required">Bank required payment</option>
-              <option value="accelerated">Accelerated payment (simulation term)</option>
-            </select>
-
-            <div class="hint">
-              If Bank Behaviour = “Tenure fixed” and you pay Baseline / Accelerated, the gap becomes extra principal (payoff earlier).
-            </div>
-          </div>
-        </div>
-
+      </div>      
         <h2 id="summaryTitle">Accelerated Term Analysis Summary (Baseline)</h2>
         <div class="scroll-wrap" id="baselineSummaryWrap"></div>
       </div>
